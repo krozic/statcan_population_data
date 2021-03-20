@@ -50,12 +50,12 @@ if(!file.exists('./data/division_data/17100139.csv')){
 ```
 
 ```{r, cache = T}
-popEst <- read.csv('./data/division_data/17100139.csv', na.strings = '')
-shp <- st_read('./data/division_shapes/lcd_000b16a_e.shp', stringsAsFactors = F)
-```
-combine
-```{r}
-metadata <- read.csv('./data/division_data/17100139_MetaData.csv', skip = 8, nrows = 306)
+metadata <- read.csv('./data/division_data/17100139_MetaData.csv', 
+                     skip = 8, nrows = 306)
+popEst <- read.csv('./data/division_data/17100139.csv', 
+                   na.strings = '')
+shp <- st_read('./data/division_shapes/lcd_000b16a_e.shp', 
+               stringsAsFactors = F)
 ```
 
 ### Check Data Integrity
@@ -83,7 +83,7 @@ Similarly $Age.group contains 'All ages', but it also contains specific age
 summations '70 to 74 years'. It also contains 'Average age' and 'Median age' 
 data, which we will remove as well.
 
-To get to plotting, first I will take the sums of everything.
+Moving on to plotting first. Take the sums of everything.
 
 ```{r}
 popTot <- popEst[popEst$Age.group == 'All ages' &
@@ -91,26 +91,21 @@ popTot <- popEst[popEst$Age.group == 'All ages' &
                          grepl(',', popEst$GEO),
                  c(1:2, 12)]
 colnames(popTot) <- c('YEAR', 'GEO', 'POPULATION')
-```
-
-```{r}
 popTot <- spread(popTot, YEAR, POPULATION)
 ```
+
+Prepare metadata for merging:
 
 ```{r}
 metadata <- metadata[c(2, 3)]
 colnames(metadata) <- c('GEO', 'CDUID')
-```
-
-```{r}
 metadata$CDUID <- gsub('\\[|\\]', '', metadata$CDUID)
 ```
 
-```{r}
-popTot <- merge(popTot, metadata)
-```
+Merge the metadata, then merge the shape data:
 
 ```{r}
+popTot <- merge(popTot, metadata)
 popMap <- st_as_sf(merge(popTot, shp))
 ```
 
