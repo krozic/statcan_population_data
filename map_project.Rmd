@@ -25,6 +25,7 @@ library(kableExtra)
 library(xml2)
 ```
 
+
 ```{r, cache = T}
 popEst <- read.csv('./data/1710013501_databaseLoadingData.csv', 
                           na.strings = c('', '<NA>'))
@@ -33,7 +34,7 @@ popEst <- read.csv('./data/1710013501_databaseLoadingData.csv',
 ### Check Data Integrity
 
 ```{r}
-for (i in colnames(popEst)) {
+for(i in colnames(popEst)){
         i_unique <- uniqueN(popEst[,i])
         cmd <- sprintf('Unique values for %s: %d', i, i_unique)
         print(eval(cmd))

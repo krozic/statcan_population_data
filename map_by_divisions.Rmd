@@ -1,0 +1,129 @@
+---
+title: "map_by_divisions"
+output: html_document
+---
+
+```{r, message = F, warning = F}
+library(ggplot2)
+library(dplyr)
+library(data.table)
+library(RSQLite)
+library(tmap)
+library(tmaptools)
+library(sf)
+# library(Hmisc)
+library(tidyr)
+# library(plyr)
+# library(reshape2)
+library(knitr)
+library(kableExtra)
+library(xml2)
+library(leaflet)
+```
+
+```{r, cache = T}
+folders <- c(
+        './data',
+        './data/original_rar',
+        './data/division_data',
+        './data/division_shapes'
+)
+url1 <- 'https://www12.statcan.gc.ca/census-recensement/2011/geo/bound-limit/files-fichiers/2016/lcd_000b16a_e.zip'
+url2 <- 'https://www150.statcan.gc.ca/n1/tbl/csv/17100139-eng.zip'
+for(folder in folders){
+        if(!file.exists(folder)){dir.create(folder)}
+}
+if(!file.exists('./data/original_rar/lcd_000b16a_e.zip')){
+        download.file(url1, './data/original_rar/lcd_000b16a_e.zip')
+}
+if(!file.exists('./data/original_rar/17100139-eng.zip')){
+        download.file(url2, './data/original_rar/17100139-eng.zip')
+}
+if(!file.exists('./data/division_shapes/lcd_000b16a_e.shp')){
+        unzip('./data/original_rar/lcd_000b16a_e.zip',
+              exdir = './data/division_shapes')
+}
+if(!file.exists('./data/division_data/17100139.csv')){
+        unzip('./data/original_rar/17100139-eng.zip', 
+              exdir = './data/division_data')
+}
+```
+
+```{r, cache = T}
+popEst <- read.csv('./data/division_data/17100139.csv', na.strings = '')
+shp <- st_read('./data/division_shapes/lcd_000b16a_e.shp', stringsAsFactors = F)
+```
+combine
+```{r}
+metadata <- read.csv('./data/division_data/17100139_MetaData.csv', skip = 8, nrows = 306)
+```
+
+### Check Data Integrity
+
+```{r, cache = T}
+for(i in colnames(popEst)){
+        i_unique <- uniqueN(popEst[,i])
+        cmd <- sprintf('Unique values for %s: %d', i, i_unique)
+        print(eval(cmd))
+}
+#OR
+#sapply(popEst, uniqueN)
+as.data.frame(colMeans(is.na(popEst))*100) %>% 
+        kbl() %>% 
+        kable_styling(bootstrap_options = c('striped', 
+                                      'hover', 
+                                      'condensed', 
+                                      'responsive'), 
+                      full_width = F)
+```
+
+`STATUS`, `SYMBOL` and `TERMINATED` can all be removed.
+$Sex contains a summation observation 'Both sexes' that should be removed.
+Similarly $Age.group contains 'All ages', but it also contains specific age 
+summations '70 to 74 years'. It also contains 'Average age' and 'Median age' 
+data, which we will remove as well.
+
+To get to plotting, first I will take the sums of everything.
+
+```{r}
+popTot <- popEst[popEst$Age.group == 'All ages' &
+                         popEst$Sex == 'Both sexes' &
+                         grepl(',', popEst$GEO),
+                 c(1:2, 12)]
+colnames(popTot) <- c('YEAR', 'GEO', 'POPULATION')
+```
+
+```{r}
+popTot <- spread(popTot, YEAR, POPULATION)
+```
+
+```{r}
+metadata <- metadata[c(2, 3)]
+colnames(metadata) <- c('GEO', 'CDUID')
+```
+
+```{r}
+metadata$CDUID <- gsub('\\[|\\]', '', metadata$CDUID)
+```
+
+```{r}
+popTot <- merge(popTot, metadata)
+```
+
+```{r}
+popMap <- st_as_sf(merge(popTot, shp))
+```
+
+```{r}
+ggplot() + 
+        geom_sf(data = popMap, aes(fill = `2020`-`2019`))
+```
+
+
+
+
+
+
+
+
+
