@@ -3,6 +3,10 @@ title: "map_by_divisions"
 output: html_document
 ---
 
+```{r, cache = T}
+knitr::opts_chunk$set
+```
+
 ```{r, message = F, warning = F}
 library(ggplot2)
 library(dplyr)
@@ -19,6 +23,7 @@ library(knitr)
 library(kableExtra)
 library(xml2)
 library(leaflet)
+library(ggpmisc)
 ```
 
 ```{r, cache = T}
@@ -91,10 +96,17 @@ popTot <- popEst[popEst$Age.group == 'All ages' &
                          grepl(',', popEst$GEO),
                  c(1:2, 12)]
 colnames(popTot) <- c('YEAR', 'GEO', 'POPULATION')
+popEst$GEO <- gsub('Ã©', 'é', popEst$GEO)
+popEst$GEO <- gsub('Ã¨', 'è', popEst$GEO)
+popEst$GEO <- gsub('ÃŽ', 'Î', popEst$GEO)
+popEst$CITY <- gsub(', .*', '', popEst$GEO)
+popEst$PROVINCE <- gsub('.*, ', '', popEst$GEO)
 popTot <- spread(popTot, YEAR, POPULATION)
 ```
 
 Prepare metadata for merging:
+
+The metadata can act as the glue to merge the population table to the shape data since it contains a `GEO` column that overlaps with the population table and a `CDUID` column that overlaps with the shape data.
 
 ```{r}
 metadata <- metadata[c(2, 3)]
@@ -109,13 +121,92 @@ popTot <- merge(popTot, metadata)
 popMap <- st_as_sf(merge(popTot, shp))
 ```
 
+Plotting the Data:
+
+Here are a few choropleth maps describing population data:
+
 ```{r}
 ggplot() + 
         geom_sf(data = popMap, aes(fill = `2020`-`2019`))
 ```
 
+Data is skewed. Check the relationship between variables to best determine how to normalize.
+
+```{r}
+ggplot(data = popMap, aes(x = `2019`, y = `2020`-`2019`)) +
+    geom_point()
+```
 
 
+```{r, cache = T}
+ggplot() + 
+    geom_sf(data = popMap, aes(fill = (`2020`-`2019`)/`2019`)) +
+    scale_fill_gradient2()
+```
+
+```{r, cache = T}
+popMap$test <- log10(abs(popMap$`2020`-popMap$`2019`))
+popMap$test[is.na(log10(popMap$`2020`-popMap$`2019`))] <- popMap$test[is.na(log10(popMap$`2020`-popMap$`2019`))] * -1
+```
+
+```{r, cache = T}
+ggplot() + 
+    geom_sf(data = popMap, aes(fill = test)) +
+    scale_fill_gradient2()
+```
+
+
+
+
+
+Some analysis of data relationship for power law applicability:
+
+```{r}
+popMap$`2020-2019` <- popMap$`2020`-popMap$`2019`
+my.formula <- y ~ x
+ggplot(data = popMap, aes(x = `2019`, y = `2020`-`2019`)) +
+        geom_point(color = 'dodgerblue3', alpha = 0.2) +
+        geom_smooth(method = 'lm', color = 'black') +
+        stat_poly_eq(formula = my.formula,
+                     aes(label = paste(..eq.label.., 
+                                       ..rr.label.., sep = '~~~')),
+                     parse = T)
+        
+
+ggplot(data = popMap, aes(x = `2019`, y = `2020`-`2019`)) +
+    geom_point(color = 'dodgerblue3', alpha = 0.2) +
+        geom_smooth(method = 'lm', color = 'black') + 
+        stat_poly_eq(formula = my.formula,
+                     aes(label = paste(..eq.label.., 
+                                       ..rr.label.., sep = '~~~')),
+                     parse = T) +
+        xlim(0, 300000) + ylim(-1000, 5000)
+```
+
+
+Reducing the skew by accounting for population size.
+
+```{r}
+ggplot(data = popMap, aes(x = `2019`, y = (`2020`-`2019`)/`2019`)) +
+        geom_point(color = 'dodgerblue3', alpha = 0.2) +
+        geom_smooth(method = 'lm', color = 'black') +
+        stat_poly_eq(formula = my.formula,
+                     aes(label = paste(..eq.label..,
+                                       ..rr.label.., sep = '~~~')),
+                     parse = T)
+```
+
+Reducing skew by taking the log.
+
+```{r}
+ggplot(data = popMap, aes(x = `2019`, y = test)) +
+        geom_point(color = 'dodgerblue3', alpha = 0.2) +
+        geom_smooth(method = 'lm', color = 'black') +
+        stat_poly_eq(formula = my.formula,
+                     aes(label = paste(..eq.label..,
+                                       ..rr.label.., sep = '~~~')),
+                     parse = T)
+``` 
 
 
 
