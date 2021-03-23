@@ -7,3 +7,6 @@ depricated/
 *.knit.md
 *.utf8.md
 *.html
+
+map_by_divisions_cache/
+
