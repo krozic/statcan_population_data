@@ -9,6 +9,7 @@ knitr::opts_chunk$set
 
 ```{r, message = F, warning = F}
 library(ggplot2)
+# library(plyr)
 library(dplyr)
 library(data.table)
 library(RSQLite)
@@ -17,13 +18,14 @@ library(tmaptools)
 library(sf)
 # library(Hmisc)
 library(tidyr)
-# library(plyr)
 # library(reshape2)
 library(knitr)
 library(kableExtra)
 library(xml2)
 library(leaflet)
 library(ggpmisc)
+library(RColorBrewer)
+library(scales)
 ```
 
 ```{r, cache = T}
@@ -31,10 +33,14 @@ folders <- c(
         './data',
         './data/original_rar',
         './data/division_data',
-        './data/division_shapes'
+        './data/division_shapes',
+        './shiny_app',
+        './shiny_app/data',
+        './shiny_app/data/division_shapes'
 )
 url1 <- 'https://www12.statcan.gc.ca/census-recensement/2011/geo/bound-limit/files-fichiers/2016/lcd_000b16a_e.zip'
 url2 <- 'https://www150.statcan.gc.ca/n1/tbl/csv/17100139-eng.zip'
+# url3 <- 
 for(folder in folders){
         if(!file.exists(folder)){dir.create(folder)}
 }
@@ -47,6 +53,7 @@ if(!file.exists('./data/original_rar/17100139-eng.zip')){
 if(!file.exists('./data/division_shapes/lcd_000b16a_e.shp')){
         unzip('./data/original_rar/lcd_000b16a_e.zip',
               exdir = './data/division_shapes')
+        file.copy('./data/division_shapes', './shiny_app/data/division_shapes')
 }
 if(!file.exists('./data/division_data/17100139.csv')){
         unzip('./data/original_rar/17100139-eng.zip', 
@@ -65,6 +72,10 @@ shp <- st_read('./data/division_shapes/lcd_000b16a_e.shp',
 
 ### Check Data Integrity
 
+Looking for number of unique values and number of NA's per column.
+
+Can also check for columns close to 0.
+
 ```{r, cache = T}
 for(i in colnames(popEst)){
         i_unique <- uniqueN(popEst[,i])
@@ -74,11 +85,12 @@ for(i in colnames(popEst)){
 #OR
 #sapply(popEst, uniqueN)
 as.data.frame(colMeans(is.na(popEst))*100) %>% 
-        kbl() %>% 
-        kable_styling(bootstrap_options = c('striped', 
-                                      'hover', 
-                                      'condensed', 
-                                      'responsive'), 
+        rownames_to_column() %>%
+        kbl(col.names = c('Variable', '% NA')) %>% 
+        kable_styling(bootstrap_options = c('striped',
+                                            'hover', 
+                                            'condensed', 
+                                            'responsive'), 
                       full_width = F)
 ```
 
@@ -95,14 +107,14 @@ Moving on to plotting first.
 Take the sums of everything.
 
 ```{r}
-popEst$GEO <- gsub('Ã©', 'é', popEst$GEO)
-popEst$GEO <- gsub('Ã¨', 'è', popEst$GEO)
-popEst$GEO <- gsub('ÃŽ', 'Î', popEst$GEO)
+popEst$GEO <- gsub('Ã©', 'e', popEst$GEO)
+popEst$GEO <- gsub('Ã¨', 'e', popEst$GEO)
+popEst$GEO <- gsub('ÃŽ', 'I', popEst$GEO)
 popEst$CITY <- gsub(', .*', '', popEst$GEO)
 popEst$PROVINCE <- gsub('.*, ', '', popEst$GEO)
-popTot <- popEst[popEst$Age.group == 'All ages' &
-                         popEst$Sex == 'Both sexes' &
-                         grepl(',', popEst$GEO),
+popTot <- popEst[popEst$Age.group == 'All ages' & 
+                     popEst$Sex == 'Both sexes' &
+                     grepl(',', popEst$GEO),
                  c(1:2, 12, 17:18)]
 colnames(popTot) <- c('YEAR', 'GEO', 'POPULATION', 'CITY', 'PROVINCE')
 popTot <- spread(popTot, YEAR, POPULATION)
@@ -116,9 +128,9 @@ The metadata can act as the glue to merge the population table to the shape data
 metadata <- metadata[c(2, 3)]
 colnames(metadata) <- c('GEO', 'CDUID')
 metadata$CDUID <- gsub('\\[|\\]', '', metadata$CDUID)
-metadata$GEO <- gsub('Ã©', 'é', metadata$GEO)
-metadata$GEO <- gsub('Ã¨', 'è', metadata$GEO)
-metadata$GEO <- gsub('ÃŽ', 'Î', metadata$GEO)
+metadata$GEO <- gsub('Ã©', 'e', metadata$GEO)
+metadata$GEO <- gsub('Ã¨', 'e', metadata$GEO)
+metadata$GEO <- gsub('ÃŽ', 'I', metadata$GEO)
 ```
 
 Merge the metadata, then merge the shape data:
@@ -126,6 +138,13 @@ Merge the metadata, then merge the shape data:
 ```{r}
 popTot <- merge(popTot, metadata)
 popMap <- st_as_sf(merge(popTot, shp))
+```
+
+Save tidied data for shiny app use:
+
+```{r}
+popTot_save <- gather(popTot, names(popTot[4:23]), key = YEAR, value = POPULATION)
+write.csv(popTot_save, './shiny_app/data/popTot.csv', row.names = F)
 ```
 
 Plotting the Data:
@@ -224,9 +243,9 @@ domain <- c(minVal, maxVal)
 #               colorRampPalette(colors = c('white', '#003d8c'), 
 #                                space = 'Lab', bias = 500)(maxVal))
 colorPal <- c(colorRampPalette(colors = brewer.pal(11, 'RdBu')[c(1:4, 6)],
-                               space = 'Lab')(abs(minVal)),
+                               space = 'Lab')(abs(minVal/10)),
               colorRampPalette(colors = brewer.pal(11, 'RdBu')[c(6, 8:11)],
-                               space = 'Lab')(maxVal))
+                               space = 'Lab')(maxVal/10)[-1])
 ```
 
 ```{r}
@@ -236,6 +255,8 @@ colorPal <- c(colorRampPalette(colors = brewer.pal(11, 'RdBu')[c(1:4, 6)],
 ```
 
 [leaflet choropleth tutorial](https://rstudio.github.io/leaflet/choropleths.html)
+
+Need to transform the data to google maps style 4326 to work in leaflet.
 
 ```{r}
 labels = sprintf('<strong>%s</strong><br/>%g net migration/10k',
