@@ -1,0 +1,293 @@
+---
+title: "Canada Population Dashboard"
+Author: 'Kyle Rozic'
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    toc_depth: 3
+---
+
+```{r, message = F, warning = F}
+library(ggplot2)
+library(dplyr)
+library(data.table)
+library(tibble)
+library(RSQLite)
+library(tmap)
+library(tmaptools)
+library(sf)
+library(tidyr)
+library(knitr)
+library(kableExtra)
+library(xml2)
+library(leaflet)
+library(ggpmisc)
+library(RColorBrewer)
+library(scales)
+```
+
+## Synopsis
+
+The goal of this project was to explore the capabilities of interactive maps in R with the `shiny` package while my friend [Tom](https://github.com/tomsitter/canada-population-map) similarly explored interactive maps in python with `streamlit`. The package `leaflet` proved to be highly customizable and pleasing to work with.
+
+This report details the acquisition, cleaning, transformation and joining of the data with `data.table`, and visualization of the data with `ggplot2`. After planning the visualization, the code for a leaflet rendering is provided at the end. The final interactive application can be found [here](https://krozic.shinyapps.io/shiny_app/) while the repository for this project can be found on my [github](https://github.com/krozic/statcan_population_data).
+
+The population data, shape data, and metadata required for this project were all sourced from [Statistics Canada](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1710013901).
+
+## Getting and Processing the Data
+
+### Downloading and Organizing the Files
+
+```{r, cache = T}
+folders <- c(
+        './data',
+        './data/original_rar',
+        './data/division_data',
+        './data/division_shapes',
+        './shiny_app',
+        './shiny_app/data',
+        './shiny_app/data/division_shapes'
+)
+url1 <- 'https://www12.statcan.gc.ca/census-recensement/2011/geo/bound-limit/files-fichiers/2016/lcd_000b16a_e.zip'
+url2 <- 'https://www150.statcan.gc.ca/n1/tbl/csv/17100139-eng.zip'
+# url3 <- 
+for(folder in folders){
+        if(!file.exists(folder)){dir.create(folder)}
+}
+if(!file.exists('./data/original_rar/lcd_000b16a_e.zip')){
+        download.file(url1, './data/original_rar/lcd_000b16a_e.zip')
+}
+if(!file.exists('./data/original_rar/17100139-eng.zip')){
+        download.file(url2, './data/original_rar/17100139-eng.zip')
+}
+if(!file.exists('./data/division_shapes/lcd_000b16a_e.shp')){
+        unzip('./data/original_rar/lcd_000b16a_e.zip',
+              exdir = './data/division_shapes')
+        file.copy('./data/division_shapes', './shiny_app/data/division_shapes')
+}
+if(!file.exists('./data/division_data/17100139.csv')){
+        unzip('./data/original_rar/17100139-eng.zip', 
+              exdir = './data/division_data')
+}
+```
+
+### Importing Raw Data
+
+```{r, cache = T}
+metadata <- read.csv('./data/division_data/17100139_MetaData.csv', 
+                     skip = 8, nrows = 306)
+popEst <- read.csv('./data/division_data/17100139.csv', 
+                   na.strings = '')
+shp <- st_read('./data/division_shapes/lcd_000b16a_e.shp', 
+               stringsAsFactors = F)
+```
+
+### Processing the Raw Data
+
+Some variables contain a lot of missing data or 'NA' values while others contain no useful information. These tables help to determine which variables will be useful for exploration.
+
+```{r, cache = T}
+for(i in colnames(popEst)){
+        i_unique <- uniqueN(popEst[,i])
+        cmd <- sprintf('Unique values for %s: %d', i, i_unique)
+        print(eval(cmd))
+}
+#OR
+#sapply(popEst, uniqueN)
+as.data.frame(colMeans(is.na(popEst))*100) %>% 
+        rownames_to_column() %>%
+        kbl(col.names = c('Variable', '% NA')) %>% 
+        kable_styling(bootstrap_options = c('striped',
+                                            'hover', 
+                                            'condensed', 
+                                            'responsive'), 
+                      full_width = F)
+```
+
+'SCALAR_FACTOR', 'SCALAR_ID', 'STATUS', 'SYMBOL' and 'TERMINATED' can all be ignored since they only contain a single value each. 
+
+'Sex' contains a summation observation 'Both sexes' while 'Age.group' contains 'All ages'. It also contains specific age summations like '70 to 74 years' and statistic summaries like 'Average age' and 'Median age'. These may be useful in another visualization, however for this project only total summations will be used.
+
+```{r}
+popEst$GEO <- gsub('Ã©', 'e', popEst$GEO)
+popEst$GEO <- gsub('Ã¨', 'e', popEst$GEO)
+popEst$GEO <- gsub('ÃŽ', 'I', popEst$GEO)
+popEst$CITY <- gsub(', .*', '', popEst$GEO)
+popEst$PROVINCE <- gsub('.*, ', '', popEst$GEO)
+popTot <- popEst[popEst$Age.group == 'All ages' & 
+                     popEst$Sex == 'Both sexes' &
+                     grepl(',', popEst$GEO),
+                 c(1:2, 12, 17:18)]
+colnames(popTot) <- c('YEAR', 'GEO', 'POPULATION', 'CITY', 'PROVINCE')
+popTot <- spread(popTot, YEAR, POPULATION)
+```
+
+### Merging the Data
+
+The metadata can act as the glue to merge the population table to the shape data since it contains a 'GEO' column that overlaps with the population table and a 'CDUID' column that overlaps with the shape data. First, the 'GEO' variable of the metadata must be processed in the same way the population data has been:
+
+```{r}
+metadata <- metadata[c(2, 3)]
+colnames(metadata) <- c('GEO', 'CDUID')
+metadata$CDUID <- gsub('\\[|\\]', '', metadata$CDUID)
+metadata$GEO <- gsub('Ã©', 'e', metadata$GEO)
+metadata$GEO <- gsub('Ã¨', 'e', metadata$GEO)
+metadata$GEO <- gsub('ÃŽ', 'I', metadata$GEO)
+```
+
+Merging the metadata, then merging the shape data:
+
+```{r}
+popTot <- merge(popTot, metadata)
+popMap <- st_as_sf(merge(popTot, shp))
+```
+
+Saving tidied data for shiny app use:
+
+```{r}
+popTot_save <- gather(popTot, names(popTot[4:23]), key = YEAR, value = POPULATION)
+write.csv(popTot_save, './shiny_app/data/popTot.csv', row.names = F)
+```
+
+## Visualizing the Data
+
+### Choropleth Maps
+
+```{r}
+ggplot() + 
+        geom_sf(data = popMap, aes(fill = `2020`-`2019`))
+```
+
+The data is skewed to the point where the fill color doesn't provide much meaningful differentiation. This can be solved by Next Checking the relationship between variables to best determine how to normalize.
+
+### Scaling vs Log Transformations
+
+```{r, cache = T}
+popMap$log <- log10(abs(popMap$`2020`-popMap$`2019`))
+popMap$log[is.na(log10(popMap$`2020`-popMap$`2019`))] <- popMap$log[is.na(log10(popMap$`2020`-popMap$`2019`))] * -1
+```
+
+[hist() details](https://www.r-graph-gallery.com/2-two-histograms-with-melt-colors.html)
+
+```{r}
+par(
+    mfrow = c(1, 3),
+    mar = c(4, 4, 1, 1)
+)
+hist(popMap$'2020' - popMap$'2019', 
+     breaks = 30, 
+     col = rgb(1, 0, 0, 0.5), 
+     xlab = 'Pop Change', 
+     main = '')
+hist((popMap$'2020' - popMap$'2019')/popMap$'2019', 
+     breaks = 30, 
+     col = rgb(0, 0, 1, 0.5), 
+     xlab = 'Pop Change per Capita', 
+     main = '')
+hist(popMap$log, 
+     breaks = 30, 
+     col = rgb(0, 0, 1, 0.5), 
+     xlab = 'Pop Change log', main = '')
+```
+
+**ggplot Histogram Aside**
+
+```{r}
+tibble('PopChange' = popMap$'2020' - popMap$'2019') %>% arrange('PopChange') %>% ggplot(aes(x = PopChange)) + geom_histogram() + scale_x_continuous(breaks = 30)
+```
+
+
+Although I normally prefer `ggplot2`, the base r function `hist()` is a lot quicker and easier to use for an exploratory analysis of variable distribution. If `ggplot2` is desired, I found [this](https://stackoverflow.com/questions/32102608/r-hist-vs-geom-hist-break-points) Stack Overflow article comparing hist() vs geom_histogram() to be a good source of information.
+
+**End aside**
+
+```{r, cache = T}
+ggplot() + 
+    geom_sf(data = popMap, aes(fill = log)) +
+    scale_fill_gradient2()
+```
+
+
+```{r, cache = T}
+ggplot() + 
+    geom_sf(data = popMap, aes(fill = (`2020`-`2019`)/`2019` * 10000)) +
+    scale_fill_gradient2(name = 'Migration per 10k') 
+```
+
+Although both normalization methods produce more meaningful visualizations, reducing the skew by taking the log results in data that are considerably abstracted while reducing the skew by scaling produces results as change per capita which are still meaningful numbers.
+
+For the application, net migration per 10k individuals was used to both visualize the data and provide a meaningful metric for the user to gain a better understanding of the data. 
+
+## Building the Leaflet App
+
+### Custom Color Palette
+
+Unlike `ggplot2`, `leaflet` does not properly center the data at the intersect of a diverging color palette. In order to display the data properly, a custom color palette must be made with `colorRampPalette`. This [medium article](https://medium.com/inside-machine-learning/center-diverging-colors-on-leaflet-map-515e69d7f81f) was used as a reference to build a comparable palette.
+
+```{r}
+minVal <- min((popMap$`2020`-popMap$`2019`)/popMap$`2019`*10000)
+maxVal <- max((popMap$`2020`-popMap$`2019`)/popMap$`2019`*10000)
+domain <- c(minVal, maxVal)
+
+# colorPal_grad <- c(colorRampPalette(colors = c('#801100', 'white'), 
+#                                space = 'Lab', bias = 500)(abs(minVal)),
+#               colorRampPalette(colors = c('white', '#003d8c'), 
+#                                space = 'Lab', bias = 500)(maxVal))
+colorPal <- c(colorRampPalette(colors = brewer.pal(11, 'RdBu')[c(1:4, 6)],
+                               space = 'Lab')(abs(minVal/10)),
+              colorRampPalette(colors = brewer.pal(11, 'RdBu')[c(6, 8:11)],
+                               space = 'Lab')(maxVal/10)[-1])
+```
+
+When using 2 colors and a center, the palette appears quite bland. To create a pleasing palette like the preset palettes, the same function can be used to interpolate a discrete palette rather than 3 colors, so it keeps the aesthetics of the discrete palette in a continuous palette.
+
+![Using Color Gradient](data/images/color_gradient.jpg)
+
+![Using Color Palette](data/images/custom_colors.jpg)
+
+An alternative method to visualize the differences in population without transforming the data could be to create a custom color palette with custom 'bin' values, distribituted to contain the same number of divisions in each rather than a consistent range of population values.
+
+### Leaflet Code and Application Description
+
+The [leaflet choropleth tutorial](https://rstudio.github.io/leaflet/choropleths.html) on github provides a good framework for planning a choropleth application.
+
+As a note, the data needs to be transformed to google maps style 4326 to work in leaflet application.
+
+```{r, eval = F}
+labels = sprintf('<strong>%s</strong><br/>%g net migration/10k',
+                 popMap$GEO, 
+                 round((popMap$`2020`-popMap$`2019`)/popMap$`2019`*10000)) %>%
+        lapply(htmltools::HTML)
+
+st_transform(popMap, '+init=epsg:4326') %>%
+        leaflet() %>%
+        addProviderTiles('Stamen.TonerLite') %>%
+        setView(lng = -95, lat = 60, zoom = 3) %>%
+        addPolygons(color = '#444444', 
+                    weight = 1, 
+                    smoothFactor = 0.5, 
+                    opacity = 1, 
+                    fillOpacity = 0.7, 
+                    fillColor = ~get('colorNumeric')(colorPal, domain)((`2020`-`2019`)/`2019`*10000),
+                    highlightOptions = highlightOptions(color = 'white', 
+                                                        weight = 2, 
+                                                        bringToFront = T),
+                    label = labels,
+                    labelOptions = labelOptions(
+                            style = list('font-weight' = 'normal', 
+                                         padding = '3px 8px'),
+                            textsize = '15px',
+                            direction = 'auto')) %>%
+        addLegend(pal = colorNumeric(colorPal, domain = domain), 
+                  values = domain, 
+                  opacity = 0.7, 
+                  title = 'Net Migration Per 10k', 
+                  position = 'bottomright')
+```
+
+### Final Shiny Application
+
+![](data/images/app_screenshot.jpg)
+
+To use the application, visit my [shiny webpage](https://krozic.shinyapps.io/shiny_app/) and to see the shiny code visit my [github page](https://github.com/krozic/statcan_population_data)

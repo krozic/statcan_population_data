@@ -1,0 +1,17 @@
+base
+ggplot2
+dplyr
+data.table
+tibble
+RSQLite
+tmap
+tmaptools
+sf
+tidyr
+knitr
+kableExtra
+xml2
+leaflet
+ggpmisc
+RColorBrewer
+scales
