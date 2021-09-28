@@ -192,8 +192,6 @@ hist(popMap$log,
      xlab = 'Pop Change log', main = '')
 ```
 
-Although both normalization methods produce more meaningful visualizations, reducing the skew by taking the log results in data that are considerably abstracted while reducing the skew by scaling produces results as change per capita which are still meaningful numbers.
-
 ```{r, cache = T}
 log_plot <- ggplot() + 
     geom_sf(data = popMap, aes(fill = log)) +
@@ -206,11 +204,11 @@ scaled_plot <- ggplot() +
     scale_fill_gradient2(name = '') +
     labs(title = 'Migration per 10k') +
     theme(legend.position = 'bottom')
-```
 
-```{r, cache = T}
 grid.arrange(log_plot, scaled_plot, ncol = 2)
 ```
+
+Although both normalization methods produce more useful visualizations, reducing the skew by taking the log results in data that are considerably abstracted while reducing the skew by scaling produces results as change per capita which are still meaningful numbers.
 
 For the application, net migration per 10k individuals was used to both visualize the data and provide a meaningful metric for the user to gain a better understanding of the data. 
 
