@@ -164,12 +164,12 @@ The data is skewed to the point where the fill color doesn't provide much meanin
 
 ### Scaling vs Log Transformations
 
-```{r, cache = T}
+```{r, cache = T, warning = F}
 popMap$log <- log10(abs(popMap$`2020`-popMap$`2019`))
 popMap$log[is.na(log10(popMap$`2020`-popMap$`2019`))] <- popMap$log[is.na(log10(popMap$`2020`-popMap$`2019`))] * -1
 ```
 
-[Details](https://www.r-graph-gallery.com/2-two-histograms-with-melt-colors.html) on how to use `hist()`.
+[Details](https://www.r-graph-gallery.com/2-two-histograms-with-melt-colors.html) on how to use `hist()` for variable distribution analysis.
 
 ```{r}
 par(

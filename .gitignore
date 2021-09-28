@@ -4,7 +4,7 @@ data/
 map_project_cache/
 map_by_divisions_cache/
 depricated/
-map_by_divisions_cache/
+index_cache/
 *.knit.md
 *.utf8.md
 

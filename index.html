@@ -548,10 +548,7 @@ write.csv(popTot_save, &#39;./shiny_app/data/popTot.csv&#39;, row.names = F)</co
 <h3>Scaling vs Log Transformations</h3>
 <pre class="r"><code>popMap$log &lt;- log10(abs(popMap$`2020`-popMap$`2019`))
 popMap$log[is.na(log10(popMap$`2020`-popMap$`2019`))] &lt;- popMap$log[is.na(log10(popMap$`2020`-popMap$`2019`))] * -1</code></pre>
-<pre><code>## Warning: NaNs produced</code></pre>
-<pre><code>## Warning in popMap$log[is.na(log10(popMap$`2020` - popMap$`2019`))] &lt;-
-## popMap$log[is.na(log10(popMap$`2020` - : NaNs produced</code></pre>
-<p><a href="https://www.r-graph-gallery.com/2-two-histograms-with-melt-colors.html">Details</a> on how to use <code>hist()</code>.</p>
+<p><a href="https://www.r-graph-gallery.com/2-two-histograms-with-melt-colors.html">Details</a> on how to use <code>hist()</code> for variable distribution analysis.</p>
 <pre class="r"><code>par(
     mfrow = c(1, 3),
     mar = c(4, 4, 1, 1)
