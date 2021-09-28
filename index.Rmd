@@ -13,13 +13,13 @@ library(ggplot2)
 library(dplyr)
 library(data.table)
 library(tibble)
-library(RSQLite)
 library(tmap)
 library(tmaptools)
 library(sf)
 library(tidyr)
 library(knitr)
 library(kableExtra)
+library(gridExtra)
 library(xml2)
 library(leaflet)
 library(ggpmisc)
@@ -88,16 +88,17 @@ shp <- st_read('./data/division_shapes/lcd_000b16a_e.shp',
 Some variables contain a lot of missing data or 'NA' values while others contain no useful information. These tables help to determine which variables will be useful for exploration.
 
 ```{r, cache = T}
-for(i in colnames(popEst)){
-        i_unique <- uniqueN(popEst[,i])
-        cmd <- sprintf('Unique values for %s: %d', i, i_unique)
-        print(eval(cmd))
-}
+# for(i in colnames(popEst)){
+#         i_unique <- uniqueN(popEst[,i])
+#         cmd <- sprintf('Unique values for %s: %d', i, i_unique)
+#         print(eval(cmd))
+# }
 #OR
 #sapply(popEst, uniqueN)
-as.data.frame(colMeans(is.na(popEst))*100) %>% 
+data.frame(colMeans(is.na(popEst))*100,
+              sapply(popEst, uniqueN)) %>% 
         rownames_to_column() %>%
-        kbl(col.names = c('Variable', '% NA')) %>% 
+        kbl(col.names = c('Variable', '% NA', '# of Unique')) %>% 
         kable_styling(bootstrap_options = c('striped',
                                             'hover', 
                                             'condensed', 
@@ -159,7 +160,7 @@ ggplot() +
         geom_sf(data = popMap, aes(fill = `2020`-`2019`))
 ```
 
-The data is skewed to the point where the fill color doesn't provide much meaningful differentiation. This can be solved by Next Checking the relationship between variables to best determine how to normalize.
+The data is skewed to the point where the fill color doesn't provide much meaningful differentiation. This can be solved by normalizing the variable either by scaling or log transformations.
 
 ### Scaling vs Log Transformations
 
@@ -168,7 +169,7 @@ popMap$log <- log10(abs(popMap$`2020`-popMap$`2019`))
 popMap$log[is.na(log10(popMap$`2020`-popMap$`2019`))] <- popMap$log[is.na(log10(popMap$`2020`-popMap$`2019`))] * -1
 ```
 
-[hist() details](https://www.r-graph-gallery.com/2-two-histograms-with-melt-colors.html)
+[Details](https://www.r-graph-gallery.com/2-two-histograms-with-melt-colors.html) on how to use `hist()`.
 
 ```{r}
 par(
@@ -191,31 +192,25 @@ hist(popMap$log,
      xlab = 'Pop Change log', main = '')
 ```
 
-**ggplot Histogram Aside**
-
-```{r}
-tibble('PopChange' = popMap$'2020' - popMap$'2019') %>% arrange('PopChange') %>% ggplot(aes(x = PopChange)) + geom_histogram() + scale_x_continuous(breaks = 30)
-```
-
-
-Although I normally prefer `ggplot2`, the base r function `hist()` is a lot quicker and easier to use for an exploratory analysis of variable distribution. If `ggplot2` is desired, I found [this](https://stackoverflow.com/questions/32102608/r-hist-vs-geom-hist-break-points) Stack Overflow article comparing hist() vs geom_histogram() to be a good source of information.
-
-**End aside**
-
-```{r, cache = T}
-ggplot() + 
-    geom_sf(data = popMap, aes(fill = log)) +
-    scale_fill_gradient2()
-```
-
-
-```{r, cache = T}
-ggplot() + 
-    geom_sf(data = popMap, aes(fill = (`2020`-`2019`)/`2019` * 10000)) +
-    scale_fill_gradient2(name = 'Migration per 10k') 
-```
-
 Although both normalization methods produce more meaningful visualizations, reducing the skew by taking the log results in data that are considerably abstracted while reducing the skew by scaling produces results as change per capita which are still meaningful numbers.
+
+```{r, cache = T}
+log_plot <- ggplot() + 
+    geom_sf(data = popMap, aes(fill = log)) +
+    scale_fill_gradient2(name = '') +
+    labs(title = 'Log') +
+    theme(legend.position = 'bottom')
+
+scaled_plot <- ggplot() + 
+    geom_sf(data = popMap, aes(fill = (`2020`-`2019`)/`2019` * 10000)) +
+    scale_fill_gradient2(name = '') +
+    labs(title = 'Migration per 10k') +
+    theme(legend.position = 'bottom')
+```
+
+```{r, cache = T}
+grid.arrange(log_plot, scaled_plot, ncol = 2)
+```
 
 For the application, net migration per 10k individuals was used to both visualize the data and provide a meaningful metric for the user to gain a better understanding of the data. 
 
@@ -290,4 +285,16 @@ st_transform(popMap, '+init=epsg:4326') %>%
 
 ![](data/images/app_screenshot.jpg)
 
-To use the application, visit my [shiny webpage](https://krozic.shinyapps.io/shiny_app/) and to see the shiny code visit my [github page](https://github.com/krozic/statcan_population_data)
+To use the application, visit my [shiny webpage](https://krozic.shinyapps.io/shiny_app/) and to see the shiny code visit my [github page](https://github.com/krozic/statcan_population_data).
+
+
+## Appendix
+
+**notes on ggplot Histograms**
+
+```{r}
+tibble('PopChange' = popMap$'2020' - popMap$'2019') %>% arrange('PopChange') %>% ggplot(aes(x = PopChange)) + geom_histogram() + scale_x_continuous(breaks = 30)
+```
+
+
+Although I normally prefer `ggplot2`, the base r function `hist()` is a lot quicker and easier to use for an exploratory analysis of variable distribution. If `ggplot2` is desired, I found [this](https://stackoverflow.com/questions/32102608/r-hist-vs-geom-hist-break-points) Stack Overflow article comparing hist() vs geom_histogram() to be a good source of information.
